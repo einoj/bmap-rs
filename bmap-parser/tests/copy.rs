@@ -1,8 +1,8 @@
-use bmap_parser::{Bmap, Discarder, SeekForward};
-use flate2::read::GzDecoder;
+use bmap_parser::{Bmap, AsyncDiscarder, SeekForward};
+use async_compression::futures::bufread::GzipDecoder;
 use sha2::{Digest, Sha256};
 use std::env;
-use std::fs::File;
+use tokio::fs::File;
 use std::io::Result as IOResult;
 use std::io::{Error, ErrorKind, Read, Write};
 use std::path::PathBuf;
@@ -118,16 +118,17 @@ fn setup_data(basename: &str) -> (Bmap, impl Read + SeekForward) {
     let mut bmapfile = datadir.clone();
     bmapfile.push(format!("{}.bmap", basename));
 
-    let mut b = File::open(&bmapfile).expect(&format!("Failed to open bmap file:{:?}", bmapfile));
+    let mut b = File::open(&bmapfile).await.expect(&format!("Failed to open bmap file:{:?}", bmapfile));
     let mut xml = String::new();
     b.read_to_string(&mut xml).unwrap();
     let bmap = Bmap::from_xml(&xml).unwrap();
 
     let mut datafile = datadir.clone();
     datafile.push(format!("{}.gz", basename));
-    let g = File::open(&datafile).expect(&format!("Failed to open data file:{:?}", datafile));
-    let gz = GzDecoder::new(g);
-    let gz = Discarder::new(gz);
+    let g = File::open(&datafile).await.expect(&format!("Failed to open data file:{:?}", datafile));
+    let gz = GzipDecoder::new(g);
+    let gz = AsyncDiscarder::new(gz);
+
 
     (bmap, gz)
 }
