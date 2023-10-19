@@ -1,5 +1,6 @@
 use bmap_parser::{Bmap, Discarder, SeekForward};
 use flate2::read::GzDecoder;
+use zstd::stream::read::Decoder as zstDecoder;
 use sha2::{Digest, Sha256};
 use std::env;
 use std::fs::File;
@@ -110,7 +111,7 @@ impl SeekForward for OutputMock {
     }
 }
 
-fn setup_data(basename: &str) -> (Bmap, impl Read + SeekForward) {
+fn setup_data(basename: &str, format: &str) -> (Bmap, impl Read + SeekForward) {
     let mut datadir = PathBuf::new();
     datadir.push(env::var("CARGO_MANIFEST_DIR").unwrap());
     datadir.push("tests/data");
@@ -124,12 +125,17 @@ fn setup_data(basename: &str) -> (Bmap, impl Read + SeekForward) {
     let bmap = Bmap::from_xml(&xml).unwrap();
 
     let mut datafile = datadir.clone();
-    datafile.push(format!("{}.gz", basename));
+    datafile.push(format!("{basename}.{format}",));
     let g = File::open(&datafile).expect(&format!("Failed to open data file:{:?}", datafile));
-    let gz = GzDecoder::new(g);
-    let gz = Discarder::new(gz);
 
-    (bmap, gz)
+    let archive = match format {
+        "gz" => GzDecoder::new(g),
+        "zst" => zstDecoder::new(g),
+        _ =>  panic!("Image file format not implemented"), 
+    };
+    let archive = Discarder::new(archive);
+
+    (bmap, archive)
 }
 
 fn sha256_reader<R: Read>(mut reader: R) -> [u8; 32] {
@@ -148,7 +154,7 @@ fn sha256_reader<R: Read>(mut reader: R) -> [u8; 32] {
 
 #[test]
 fn copy() {
-    let (bmap, mut input) = setup_data("test.img");
+    let (bmap, mut input) = setup_data("test.img", "gz");
     let mut output = OutputMock::new(bmap.image_size());
 
     bmap_parser::copy(&mut input, &mut output, &bmap).unwrap();
@@ -162,7 +168,7 @@ fn copy() {
         assert_eq!(map.checksum().as_slice(), range.sha256());
     }
 
-    let (_, mut input) = setup_data("test.img");
+    let (_, mut input) = setup_data("test.img", "gz");
     // Assert that the full gzipped content match the written output
     assert_eq!(sha256_reader(&mut input), output.sha256())
 }
